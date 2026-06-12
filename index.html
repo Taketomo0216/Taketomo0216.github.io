@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>墨流し｜Taketomo0216</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { width: 100%; height: 100%; overflow: hidden; }
+    body {
+      background: #ece4d2;
+      color: #4d4438;
+      font-family: 'Shippori Mincho', 'Noto Serif TC', serif;
+      user-select: none;
+      touch-action: none;
+    }
+    canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; cursor: crosshair; }
+    .title {
+      position: fixed;
+      top: 28px;
+      left: 32px;
+      z-index: 3;
+      letter-spacing: 0.16em;
+      color: rgba(68, 58, 44, 0.78);
+      text-shadow: 0 1px 0 rgba(255,255,255,0.28);
+      pointer-events: none;
+    }
+    .title h1 { font-size: clamp(28px, 5vw, 64px); font-weight: 400; }
+    .title p { margin-top: 8px; font-size: 13px; opacity: .72; }
+    #bar {
+      position: fixed;
+      left: 50%;
+      bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+      transform: translateX(-50%);
+      z-index: 5;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 16px;
+      border-radius: 999px;
+      background: rgba(247, 242, 230, 0.58);
+      border: 1px solid rgba(110, 96, 74, 0.22);
+      backdrop-filter: blur(14px) saturate(1.15);
+      box-shadow: 0 4px 24px rgba(70,58,40,.12), inset 0 1px 0 rgba(255,255,255,.35);
+    }
+    .ink {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      border: 0;
+      cursor: pointer;
+      box-shadow: inset 0 1px 2px rgba(255,255,255,.25), 0 1px 3px rgba(60,48,30,.25);
+      position: relative;
+    }
+    .ink.active::after {
+      content: "";
+      position: absolute;
+      inset: -5px;
+      border-radius: 50%;
+      border: 1px solid rgba(90,76,56,.65);
+    }
+    .wash {
+      background: none;
+      border: 0;
+      cursor: pointer;
+      font: inherit;
+      color: #5d5142;
+      letter-spacing: .14em;
+      font-size: 12px;
+      padding-left: 8px;
+      border-left: 1px solid rgba(110,96,74,.24);
+      white-space: nowrap;
+    }
+    .hint {
+      position: fixed;
+      right: 28px;
+      bottom: 82px;
+      z-index: 3;
+      color: rgba(68,58,44,.54);
+      font-size: 12px;
+      letter-spacing: .1em;
+      pointer-events: none;
+    }
+    @media (max-width: 520px) {
+      .title { top: 22px; left: 22px; }
+      .hint { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <canvas id="canvas"></canvas>
+  <div class="title">
+    <h1>墨流し</h1>
+    <p>Taketomo0216 / interactive web sketch</p>
+  </div>
+  <div id="bar" role="toolbar" aria-label="墨流控制列">
+    <button class="ink active" style="background:#23232a" data-color="35,35,42" aria-label="墨黑"></button>
+    <button class="ink" style="background:#2b4480" data-color="43,68,128" aria-label="深藍"></button>
+    <button class="ink" style="background:#b03d26" data-color="176,61,38" aria-label="朱紅"></button>
+    <button class="ink" style="background:#456b50" data-color="69,107,80" aria-label="松葉綠"></button>
+    <button class="wash" id="wash">洗い流す</button>
+  </div>
+  <div class="hint">拖曳滑鼠 / 手指落墨</div>
+  <script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d', { alpha: false });
+    let W = 0, H = 0, DPR = 1;
+    let color = [35,35,42];
+    let points = [];
+    let t = 0;
+
+    function resize() {
+      DPR = Math.min(devicePixelRatio || 1, 2);
+      W = innerWidth;
+      H = innerHeight;
+      canvas.width = Math.floor(W * DPR);
+      canvas.height = Math.floor(H * DPR);
+      canvas.style.width = W + 'px';
+      canvas.style.height = H + 'px';
+      ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+      drawPaper(true);
+    }
+
+    function noise(x, y) {
+      return Math.sin(x * 12.9898 + y * 78.233) * 43758.5453 % 1;
+    }
+
+    function drawPaper(reset=false) {
+      if (reset) {
+        const g = ctx.createLinearGradient(0, 0, W, H);
+        g.addColorStop(0, '#f2ead8');
+        g.addColorStop(0.5, '#ece4d2');
+        g.addColorStop(1, '#e3d8bf');
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, W, H);
+      }
+      ctx.save();
+      ctx.globalAlpha = 0.065;
+      for (let i = 0; i < 110; i++) {
+        const y = Math.random() * H;
+        ctx.strokeStyle = i % 2 ? '#806f56' : '#fff8e8';
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        for (let x = 0; x <= W; x += 40) {
+          ctx.lineTo(x, y + Math.sin(x * .012 + i) * 5 + Math.random() * 3);
+        }
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    function addInk(x, y, c=color, r=18 + Math.random()*18) {
+      points.push({ x, y, px:x, py:y, vx:(Math.random()-.5)*0.55, vy:(Math.random()-.5)*0.55, r, c, life: 1, spin: Math.random()*Math.PI*2 });
+      for (let i=0; i<5; i++) {
+        const a = Math.random() * Math.PI * 2;
+        points.push({ x:x+Math.cos(a)*r*.35, y:y+Math.sin(a)*r*.35, px:x, py:y, vx:Math.cos(a)*.38, vy:Math.sin(a)*.38, r:r*(.24+Math.random()*.32), c, life:.82, spin:a });
+      }
+    }
+
+    function drawInk(p) {
+      const [rr,gg,bb] = p.c;
+      const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.r);
+      grad.addColorStop(0, `rgba(${rr},${gg},${bb},${0.22*p.life})`);
+      grad.addColorStop(.55, `rgba(${rr},${gg},${bb},${0.105*p.life})`);
+      grad.addColorStop(1, `rgba(${rr},${gg},${bb},0)`);
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      const k = 0.17 * Math.sin(t*.025 + p.spin);
+      ctx.ellipse(p.x, p.y, p.r * (1.35 + k), p.r * (.82 - k*.4), p.spin + t*.0012, 0, Math.PI*2);
+      ctx.fill();
+      ctx.strokeStyle = `rgba(${Math.max(0,rr-10)},${Math.max(0,gg-10)},${Math.max(0,bb-10)},${0.08*p.life})`;
+      ctx.lineWidth = .8;
+      ctx.stroke();
+    }
+
+    function animate() {
+      t++;
+      ctx.save();
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.fillStyle = 'rgba(236,228,210,0.012)';
+      ctx.fillRect(0,0,W,H);
+      ctx.restore();
+
+      ctx.save();
+      ctx.globalCompositeOperation = 'multiply';
+      for (const p of points) {
+        p.px = p.x; p.py = p.y;
+        p.x += p.vx + Math.sin(t*.01 + p.spin) * .08;
+        p.y += p.vy + Math.cos(t*.012 + p.spin) * .08;
+        p.vx *= .992; p.vy *= .992;
+        p.r *= 1.0012;
+        p.life *= .9988;
+        drawInk(p);
+      }
+      ctx.restore();
+      points = points.filter(p => p.life > .045 && p.r < Math.max(W,H));
+
+      if (t % 90 === 0 && points.length < 260) {
+        addInk(W*(.18+Math.random()*.64), H*(.18+Math.random()*.64), color, 10+Math.random()*20);
+      }
+      requestAnimationFrame(animate);
+    }
+
+    let down = false;
+    function pos(e) {
+      const p = e.touches ? e.touches[0] : e;
+      return { x: p.clientX, y: p.clientY };
+    }
+    addEventListener('pointerdown', e => { down = true; const p = pos(e); addInk(p.x,p.y,color,22); });
+    addEventListener('pointermove', e => { if(!down) return; const p = pos(e); addInk(p.x,p.y,color,10+Math.random()*12); });
+    addEventListener('pointerup', () => down = false);
+    addEventListener('pointercancel', () => down = false);
+
+    document.querySelectorAll('.ink').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.ink').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        color = btn.dataset.color.split(',').map(Number);
+      });
+    });
+    document.getElementById('wash').addEventListener('click', () => {
+      points = [];
+      drawPaper(true);
+    });
+
+    addEventListener('resize', resize);
+    resize();
+    addInk(W*.42,H*.52,[35,35,42],30);
+    addInk(W*.58,H*.45,[43,68,128],22);
+    animate();
+  </script>
+</body>
+</html>
